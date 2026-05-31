@@ -58,6 +58,7 @@ SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ChangeMe_Admin_Password_123!")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+ADMIN_FULL_NAME = os.getenv("ADMIN_FULL_NAME", "Ильиных Виктория Сергеевна").strip()
 LOGIN_2FA_EXPIRE_MINUTES = int(os.getenv("LOGIN_2FA_EXPIRE_MINUTES", "10"))
 TICKET_VALID_BEFORE_HOURS = int(os.getenv("TICKET_VALID_BEFORE_HOURS", "2"))
 TICKET_VALID_AFTER_HOURS = int(os.getenv("TICKET_VALID_AFTER_HOURS", "6"))
@@ -105,6 +106,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default=UserRole.cashier.value)
@@ -177,6 +179,7 @@ class CashierRegistrationRequest(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(150))
     email: Mapped[str] = mapped_column(String(255), index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     requested_role: Mapped[str] = mapped_column(String(20), default=UserRole.cashier.value, index=True)
@@ -230,6 +233,7 @@ class Login2FAVerifyRequest(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    full_name: str | None = None
     role: str
     model_config = ConfigDict(from_attributes=True)
 
@@ -347,6 +351,7 @@ class CashierRegisterSendCodeRequest(BaseModel):
 class CashierRegisterRequest(BaseModel):
     email: str
     username: str
+    full_name: str
     password: str
     verification_code: str
 
@@ -359,6 +364,7 @@ class StaffRegisterSendCodeRequest(BaseModel):
 class StaffRegisterRequest(BaseModel):
     email: str
     username: str
+    full_name: str
     password: str
     verification_code: str
     role: str = UserRole.cashier.value
@@ -367,6 +373,7 @@ class StaffRegisterRequest(BaseModel):
 class CashierRegistrationRequestOut(BaseModel):
     id: int
     username: str
+    full_name: str
     email: str | None = None
     requested_role: str
     created_at: datetime
@@ -559,6 +566,23 @@ def normalize_buyer_name(name: str | None) -> str | None:
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def normalize_full_name(full_name: str) -> str:
+    normalized = " ".join(full_name.strip().split())
+    return normalized
+
+
+def validate_full_name(full_name: str) -> str | None:
+    if not full_name:
+        return "Укажите ФИО"
+    if len(full_name) < 5:
+        return "ФИО должно содержать минимум 5 символов"
+    if len(full_name) > 150:
+        return "ФИО слишком длинное"
+    if not re.fullmatch(r"[A-Za-zА-Яа-яЁё\\-\\s]+", full_name):
+        return "ФИО может содержать только буквы, пробелы и дефис"
+    return None
 
 
 def validate_email_format(email: str) -> str | None:
@@ -1243,6 +1267,7 @@ def seed_default_users(db: Session) -> None:
     if not admin_user:
         admin_user = User(
             username=ADMIN_USERNAME,
+            full_name=ADMIN_FULL_NAME or None,
             email=ADMIN_EMAIL or None,
             password_hash=hash_password(ADMIN_PASSWORD),
             role=UserRole.admin.value,
@@ -1254,6 +1279,9 @@ def seed_default_users(db: Session) -> None:
     changed = False
     if admin_user.username != ADMIN_USERNAME:
         admin_user.username = ADMIN_USERNAME
+        changed = True
+    if ADMIN_FULL_NAME and admin_user.full_name != ADMIN_FULL_NAME:
+        admin_user.full_name = ADMIN_FULL_NAME
         changed = True
     if ADMIN_EMAIL and admin_user.email != ADMIN_EMAIL:
         admin_user.email = ADMIN_EMAIL
@@ -1299,8 +1327,27 @@ def migrate_schema() -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
+                "ALTER TABLE users "
+                "ADD COLUMN IF NOT EXISTS full_name VARCHAR(150)"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE cashier_registration_requests "
                 "ADD COLUMN IF NOT EXISTS requested_role VARCHAR(20) DEFAULT 'cashier'"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE cashier_registration_requests "
+                "ADD COLUMN IF NOT EXISTS full_name VARCHAR(150)"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE cashier_registration_requests "
+                "SET full_name = username "
+                "WHERE full_name IS NULL OR length(trim(full_name)) = 0"
             )
         )
 
@@ -1481,8 +1528,10 @@ def register_staff(db: Session, *, payload: StaffRegisterRequest) -> dict:
     role_error = validate_staff_register_role(role)
     email = normalize_email(payload.email)
     username = payload.username.strip()
+    full_name = normalize_full_name(payload.full_name)
     email_error = validate_email_format(email)
     username_error = validate_username_letters(username)
+    full_name_error = validate_full_name(full_name)
     password_error = validate_password_strength(payload.password)
     role_label = staff_role_label(role)
 
@@ -1492,6 +1541,8 @@ def register_staff(db: Session, *, payload: StaffRegisterRequest) -> dict:
         raise HTTPException(status_code=400, detail=email_error)
     if username_error:
         raise HTTPException(status_code=400, detail=username_error)
+    if full_name_error:
+        raise HTTPException(status_code=400, detail=full_name_error)
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
 
@@ -1530,6 +1581,7 @@ def register_staff(db: Session, *, payload: StaffRegisterRequest) -> dict:
     try:
         request = CashierRegistrationRequest(
             username=username,
+            full_name=full_name,
             email=email,
             password_hash=hash_password(payload.password),
             requested_role=role,
@@ -1541,7 +1593,7 @@ def register_staff(db: Session, *, payload: StaffRegisterRequest) -> dict:
             actor=username,
             action="Заявка на регистрацию отправлена",
             details=(
-                f"Пользователь {username} ({role_label}) отправил заявку (email: {email}). "
+                f"Пользователь {full_name} ({username}, {role_label}) отправил заявку (email: {email}). "
                 "Ожидает подтверждения администратора."
             ),
         )
@@ -1572,6 +1624,7 @@ def register_cashier(payload: CashierRegisterRequest, db: Session = Depends(get_
     staff_payload = StaffRegisterRequest(
         email=payload.email,
         username=payload.username,
+        full_name=payload.full_name,
         password=payload.password,
         verification_code=payload.verification_code,
         role=UserRole.cashier.value,
@@ -1584,6 +1637,7 @@ def register_manager(payload: CashierRegisterRequest, db: Session = Depends(get_
     staff_payload = StaffRegisterRequest(
         email=payload.email,
         username=payload.username,
+        full_name=payload.full_name,
         password=payload.password,
         verification_code=payload.verification_code,
         role=UserRole.manager.value,
@@ -1653,6 +1707,7 @@ def approve_registration_request(
     role_label = staff_role_label(requested_role)
     user = User(
         username=request.username,
+        full_name=request.full_name,
         email=request.email,
         password_hash=request.password_hash,
         role=requested_role,
