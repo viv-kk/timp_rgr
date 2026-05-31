@@ -89,7 +89,7 @@ export default function AdminCashierRequestsPage() {
             {requests.map((request) => (
               <li key={request.id}>
                 <span>
-                  {formatRequestedRole(request.requested_role)}: {request.username} (
+                  {formatRequestedRole(request.requested_role)}: {request.full_name} ({request.username},{" "}
                   {request.email || "email не указан"}) —{" "}
                   {new Date(request.created_at).toLocaleString("ru-RU", { hour12: false })}
                 </span>

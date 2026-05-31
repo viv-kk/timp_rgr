@@ -62,12 +62,14 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
   const [errorMessage, setErrorMessage] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
   const [codeModalOpen, setCodeModalOpen] = useState(false);
   const [codeModalError, setCodeModalError] = useState("");
   const [pendingRegistration, setPendingRegistration] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({
     email: "",
     username: "",
+    full_name: "",
     password: "",
     confirm_password: ""
   });
@@ -82,12 +84,14 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
     const formData = new FormData(formEl);
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedUsername = username.trim();
+    const trimmedFullName = fullName.trim().replace(/\s+/g, " ");
     const password = String(formData.get("password") || "");
     const confirmPassword = String(formData.get("confirm_password") || "");
 
     const nextFieldErrors = {
       email: getEmailValidationError(trimmedEmail),
       username: getUsernameValidationError(trimmedUsername),
+      full_name: trimmedFullName ? "" : "Поле обязательно",
       password: password ? "" : "Поле обязательно",
       confirm_password: confirmPassword ? "" : "Поле обязательно"
     };
@@ -113,6 +117,7 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
       setPendingRegistration({
         email: trimmedEmail,
         username: trimmedUsername,
+        full_name: trimmedFullName,
         password,
         message: data?.message || ""
       });
@@ -137,6 +142,7 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
       const { data } = await api.post(config.registerPath, {
         email: pendingRegistration.email,
         username: pendingRegistration.username,
+        full_name: pendingRegistration.full_name,
         password: pendingRegistration.password,
         verification_code: code
       });
@@ -145,10 +151,12 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
       setPendingRegistration(null);
       setEmail("");
       setUsername("");
+      setFullName("");
       formRef.current?.reset();
       setFieldErrors({
         email: "",
         username: "",
+        full_name: "",
         password: "",
         confirm_password: ""
       });
@@ -167,6 +175,9 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
       } else if (detail === "Логин может содержать только русские и английские буквы") {
         setCodeModalOpen(false);
         setFieldErrors((prev) => ({ ...prev, username: detail }));
+      } else if (detail.includes("ФИО")) {
+        setCodeModalOpen(false);
+        setFieldErrors((prev) => ({ ...prev, full_name: detail }));
       } else if (detail.includes("email") || detail.includes("Email")) {
         setCodeModalOpen(false);
         setFieldErrors((prev) => ({ ...prev, email: detail }));
@@ -215,6 +226,25 @@ export default function CashierRegistrationPage({ staffRole = "cashier" }) {
           />
           <span className={`field-error ${fieldErrors.email ? "" : "field-error-placeholder"}`}>
             {fieldErrors.email || "."}
+          </span>
+        </label>
+
+        <label className="login-field">
+          <span>ФИО</span>
+          <input
+            name="full_name"
+            value={fullName}
+            autoComplete="name"
+            placeholder="Иванов Иван Иванович"
+            className={fieldErrors.full_name ? "input-error" : ""}
+            onChange={(e) => {
+              setFullName(e.target.value);
+              if (fieldErrors.full_name) setFieldErrors((prev) => ({ ...prev, full_name: "" }));
+            }}
+            required
+          />
+          <span className={`field-error ${fieldErrors.full_name ? "" : "field-error-placeholder"}`}>
+            {fieldErrors.full_name || "."}
           </span>
         </label>
 

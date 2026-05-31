@@ -10,6 +10,7 @@ const ROLE_LABELS = {
 export default function AppLayout() {
   const { me, logout } = useAuth();
   const roleLabel = ROLE_LABELS[me?.role] || me?.role;
+  const displayName = me?.full_name || me?.username;
 
   return (
     <main className="container">
@@ -18,7 +19,7 @@ export default function AppLayout() {
           <p className="eyebrow">Система безопасности мероприятий</p>
           <h1>Event Security</h1>
           <p className="muted">
-            Пользователь: <strong>{me?.username}</strong>
+            Пользователь: <strong>{displayName}</strong>
           </p>
         </div>
         <div className="header-actions">
